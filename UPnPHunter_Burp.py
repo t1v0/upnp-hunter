@@ -371,6 +371,7 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         self.intruderbutton.setEnabled(False)
         self.repeaterbutton.setEnabled(False)
         self.labelNoneServiceFound.setText(" ")
+        self.textarea_request.setText(" ")
         print("[+] Clearing all data")
         return
 
@@ -399,68 +400,68 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             # And here finally the hunt could start
             self.progressbar.setString("Running...")
             self.progressbar.setValue(20)
-            found_loc = self.discoverUpnpLocations()
-            self.progressbar.setValue(40)
-            discovery_files = self.downloadXMLfiles(found_loc)
-            self.progressbar.setValue(60)
-            self.services_dict = self.buildSOAPs(discovery_files)
-            self.progressbar.setValue(80)
+            # found_loc = self.discoverUpnpLocations()
+            # self.progressbar.setValue(40)
+            # discovery_files = self.downloadXMLfiles(found_loc)
+            # self.progressbar.setValue(60)
+            # self.services_dict = self.buildSOAPs(discovery_files)
+            # self.progressbar.setValue(80)
             self.progressbar.setString("Done")
             self.progressbar.setValue(100)
 
 
-#             # TEST DATA 
-#             service = "http://127.0.0.1:9000/services.xml"
-#             actions = {}
-#             actions["Action1"] = ["""POST /upnp/control/Action1 HTTP/1.1
-# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
-# Host: 192.168.1.1:49155
-# Content-Type: text/xml
-# Content-Length: 437
+            # TEST DATA 
+            service = "http://127.0.0.1:9000/services.xml"
+            actions = {}
+            actions["Action1"] = ["""POST /upnp/control/Action1 HTTP/1.1
+SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
+Host: 192.168.1.1:49155
+Content-Type: text/xml
+Content-Length: 437
 
-# <?xml version="1.0"?>
-# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-# <SOAP-ENV:Body>
-#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
-#         <NewProtocol>FUZZ_HERE</NewProtocol>
-#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
-#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
-#     </m:DeletePortMapping>
-# </SOAP-ENV:Body>
-# </SOAP-ENV:Envelope>"""]
-#             actions["Action2"] = ["""POST /upnp/control/Action2 HTTP/1.1
-# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
-# Host: 192.168.1.1:49155
-# Content-Type: text/xml
-# Content-Length: 437
+<?xml version="1.0"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+<SOAP-ENV:Body>
+    <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
+        <NewProtocol>FUZZ_HERE</NewProtocol>
+        <NewExternalPort>FUZZ_HERE</NewExternalPort>
+        <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
+    </m:DeletePortMapping>
+</SOAP-ENV:Body>
+</SOAP-ENV:Envelope>"""]
+            actions["Action2"] = ["""POST /upnp/control/Action2 HTTP/1.1
+SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
+Host: 192.168.1.1:49155
+Content-Type: text/xml
+Content-Length: 437
 
-# <?xml version="1.0"?>
-# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-# <SOAP-ENV:Body>
-#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
-#         <NewProtocol>FUZZ_HERE</NewProtocol>
-#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
-#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
-#     </m:DeletePortMapping>
-# </SOAP-ENV:Body>
-# </SOAP-ENV:Envelope>"""]
-#             actions["Action3"] = ["""POST /upnp/control/Action3 HTTP/1.1
-# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
-# Host: 192.168.1.1:49155
-# Content-Type: text/xml
-# Content-Length: 437
+<?xml version="1.0"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+<SOAP-ENV:Body>
+    <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
+        <NewProtocol>FUZZ_HERE</NewProtocol>
+        <NewExternalPort>FUZZ_HERE</NewExternalPort>
+        <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
+    </m:DeletePortMapping>
+</SOAP-ENV:Body>
+</SOAP-ENV:Envelope>"""]
+            actions["Action3"] = ["""POST /upnp/control/Action3 HTTP/1.1
+SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
+Host: 192.168.1.1:49155
+Content-Type: text/xml
+Content-Length: 437
 
-# <?xml version="1.0"?>
-# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-# <SOAP-ENV:Body>
-#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
-#         <NewProtocol>FUZZ_HERE</NewProtocol>
-#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
-#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
-#     </m:DeletePortMapping>
-# </SOAP-ENV:Body>
-# </SOAP-ENV:Envelope>"""]
-#             self.services_dict[service] = actions
+<?xml version="1.0"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+<SOAP-ENV:Body>
+    <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
+        <NewProtocol>FUZZ_HERE</NewProtocol>
+        <NewExternalPort>FUZZ_HERE</NewExternalPort>
+        <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
+    </m:DeletePortMapping>
+</SOAP-ENV:Body>
+</SOAP-ENV:Envelope>"""]
+            self.services_dict[service] = actions
 
 
             # Update the comboboxes list with the discovered UPnPs
