@@ -8,7 +8,7 @@ UPnP BHunter is a Burp Suite Extension written in Python/Jython which could be u
 # Usage
 UPnP BHunter provides a nice ;) three-step hunting console: 
 1. UPnP Discovery (definition of target IP address version and discovery of active UPnP via SSDP protocol)
-2. UPnP Selection (selection of the found UPnP service) 
+2. UPnP Selection (selection of the found UPnP service and action) 
 3. UPnP Attack (extraction of the found UPnP SOAP requests). 
 
 The tutorial below explain, better than so many words, how to use the plugin:
@@ -18,9 +18,9 @@ The tutorial below explain, better than so many words, how to use the plugin:
 
 # Author
 - UPnP BHunter plugin was developed by Maurizio Siddu
-- UPnP BHunter plugin was modified by t1v0
+- This version of UPnP BHunter plugin was modified by t1v0
 
-# Changes
+# Changes in this version
 - Changed MSearch to perform both ssdp:all and upnp:rootdevices since some devices will only respond to one or the other (i.e. Belkin WeMo switch)
 - Fixed unsigned integer conversion error when creating byte array
 - Modified the UI to expose services and actions directly and show the full request in a text area with the option to send to either repeater or interpreter
