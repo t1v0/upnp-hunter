@@ -22,7 +22,7 @@
 
 
 from burp import (IBurpExtender, ITab, IExtensionStateListener)
-from javax.swing import (SwingUtilities, JSplitPane, JProgressBar, GroupLayout, BorderFactory, JPanel, JTextField, JLabel, JButton, JComboBox)
+from javax.swing import (SwingUtilities, JSplitPane, JProgressBar, GroupLayout, BorderFactory, JPanel, JTextField, JTextArea, JLabel, JButton, JComboBox, JScrollPane)
 from javax.swing.border import EmptyBorder
 from java.net import URL
 from java.lang import (Runnable, Short)
@@ -35,6 +35,7 @@ from urlparse import urlparse
 import errno
 import urllib2
 from java.awt.event import ActionListener
+import xml.dom.minidom
 
 
 
@@ -57,10 +58,10 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
     # Define the global variables for the burp plugin
     EXTENSION_NAME="UPnP BHunter"
     ipv4_selected = True
-    all_SOAPs, LAN_SOAPs, WAN_SOAPs = {}, {}, {}
-    all_SOAP_list, LAN_SOAP_list, WAN_SOAP_list = [], [], []
+    services_dict = {}
+    ip_service_dict = {}
     STOP_THREAD = False
-    scope_dict = {}
+
     #Some  SSDP m-search parameters are based upon "UPnP Device Architecture v2.0"
     SSDP_MULTICAST_IPv4 = ["239.255.255.250"]
     SSDP_MULTICAST_IPv6 = ["FF02::C", "FF05::C"]
@@ -106,26 +107,21 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         # Create and configure labels and text fields
         self.labeltitle_step1 = JLabel("[1st STEP] Discover UPnP Locations")
         self.labeltitle_step1.setFont(Font('Tahoma', Font.BOLD, 14))
-        self.labeltitle_step2 = JLabel("[2nd STEP] Select an UPnP Service")
+        self.labeltitle_step2 = JLabel("[2nd STEP] Select a UPnP Service and Action")
         self.labeltitle_step2.setFont(Font('Tahoma', Font.BOLD, 14))
         self.labeltitle_step3 = JLabel("[3rd STEP] Time to Attack it")
         self.labeltitle_step3.setFont(Font('Tahoma', Font.BOLD, 14))
         self.labelsubtitle_step1 = JLabel("Specify the IP version address in scope and start UPnP discovery")
         self.labelsubtitle_step2 = JLabel("Select which of the found UPnP services will be probed")
-        self.labelsubtitle_step3 = JLabel("Select how to test the extracted UPnP SOAP requests having input arguments")
+        self.labelsubtitle_step3 = JLabel("Review and modify the request, then send it to one of the attack tools")
         self.label_step1 = JLabel("Target IP")
         self.label_step2 = JLabel("Found UPnp Services")
-        self.label_step3 = JLabel("Send all the extracted SOAP requests     ")
         self.labelstatus = JLabel("             Status")
         self.labelempty_step1 = JLabel("                ")
         self.labelempty_step2 = JLabel("  ")
         self.labelupnp = JLabel("UPnP list")
         self.labelip = JLabel("IP list")
-        self.labelLANHOST = JLabel("Send the interesting LANHostConfigManagement SOAP requests     ")
-        self.labelWANCONNECTION = JLabel("Send the interesting WANIP/PPPConnection SOAP requests     ")
-        self.labelSOAPnum = JLabel("0")
-        self.labelLANHOSTnum = JLabel("0")
-        self.labelWANCONNECTIONnum = JLabel("0")
+        self.labelactions = JLabel("Actions")
         self.labelNoneServiceFound = JLabel("  ")
         self.labelNoneServiceFound.setFont(Font('Tahoma', Font.BOLD, 12))
         self.labelNoneServiceFound.setForeground(Color.red)
@@ -144,14 +140,76 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         # Create and configure buttons
         self.startbutton = JButton("Start Discovery", actionPerformed=self.startHunting)
         self.clearbutton = JButton("Clear All", actionPerformed=self.clearAll)
-        self.confirmbutton = JButton("Confirm Selection", actionPerformed=self.selectUPnPService)
-        self.intruderbutton = JButton("to Intruder", actionPerformed=self.sendUPnPToIntruder)
-        self.LANrepeaterbutton = JButton("to Repeater", actionPerformed=self.sendLANUPnPToRepeater)
-        self.WANrepeaterbutton = JButton("to Repeater", actionPerformed=self.sendWANUPnPToRepeater)
-        self.confirmbutton.setEnabled(False)
+        self.intruderbutton = JButton("Send to Intruder", actionPerformed=self.sendToIntruder)
+        self.repeaterbutton = JButton("Send to Repeater", actionPerformed=self.sendToRepeater)
+        #self.WANrepeaterbutton = JButton("to Repeater", actionPerformed=self.sendWANUPnPToRepeater)
+        self.textarea_request = JTextArea(18,90)
         self.intruderbutton.setEnabled(False)
-        self.LANrepeaterbutton.setEnabled(False)
-        self.WANrepeaterbutton.setEnabled(False)
+        self.repeaterbutton.setEnabled(False)
+
+ 
+
+        # Class neeeded to handle the target combobox in second step panel
+        class TargetComboboxListener(ActionListener):
+            def __init__(self, upnpcombo_targets, upnpcombo_services, ip_service_dict):
+                self.upnpcombo_targets = upnpcombo_targets
+                self.upnpcombo_services = upnpcombo_services
+                self.ip_service_dict = ip_service_dict
+
+            def actionPerformed(self, event):
+                try: 
+                    # Update the location url combobox depending on the IP combobox 
+                    selected_target = self.upnpcombo_targets.getSelectedItem()
+                    if self.ip_service_dict and selected_target:
+                        self.upnpcombo_services.removeAllItems()
+                        for service_url in self.ip_service_dict[selected_target]:
+                            self.upnpcombo_services.addItem(service_url)
+                        self.upnpcombo_services.setSelectedIndex(0)
+                except BaseException as e:
+                    print("[!] Exception selecting service: \"%s\" ") % e
+
+        # Class neeeded to handle the service combobox in second step panel
+        class ServiceComboboxListener(ActionListener):
+            def __init__(self, upnpcombo_services, upnpcombo_actions, services_dict):
+                self.upnpcombo_services = upnpcombo_services
+                self.upnpcombo_actions = upnpcombo_actions
+                self.services = services_dict
+
+            def actionPerformed(self, event):
+                try:
+                    # Update the location url combobox depending on the IP combobox
+                    selected_service = self.upnpcombo_services.getSelectedItem()
+                    if self.services and selected_service:
+                        self.upnpcombo_actions.removeAllItems()
+                        actions = self.services[selected_service]
+                        for action in actions:
+                            self.upnpcombo_actions.addItem(action)
+                        self.upnpcombo_actions.setSelectedIndex(0)
+                except BaseException as e:
+                    print("[!] Exception selecting service: \"%s\" ") % e
+
+        # Class neeeded to handle the action combobox in second step panel
+        class ActionComboboxListener(ActionListener):
+            def __init__(self, upnpcombo_services, upnpcombo_actions, textarea_request, services_dict):
+                self.upnpcombo_services = upnpcombo_services
+                self.upnpcombo_actions = upnpcombo_actions
+                self.textarea_request = textarea_request
+                self.services = services_dict
+
+            def actionPerformed(self, event):
+                try:
+                    # Update the location url combobox depending on the IP combobox 
+                    selected_action = self.upnpcombo_actions.getSelectedItem()
+                    selected_service = self.upnpcombo_services.getSelectedItem()
+                    if self.services and selected_action:
+                        self.textarea_request.setText(self.services[selected_service][selected_action][0])
+                except BaseException as e:
+                    print("[!] Exception selecting action: \"%s\" ") % e
+
+        self.upnpactions = ["       "]
+        self.upnpcombo_actions = JComboBox(self.upnpactions)
+        self.upnpcombo_actions.setSelectedIndex(0)
+        self.upnpcombo_actions.setEnabled(False)
 
         # Create the combo box, select item at index 0 (first item in list)
         self.upnpservices = ["       "]
@@ -159,27 +217,17 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         self.upnpcombo_services.setSelectedIndex(0)
         self.upnpcombo_services.setEnabled(False)
 
-        # Class neeeded to handle the combobox in second step panel
-        class ComboboxListener(ActionListener):
-            def __init__(self, upnpcombo_targets, upnpcombo_services, scope_dict):
-                self.upnpcombo_targets = upnpcombo_targets
-                self.upnpcombo_services = upnpcombo_services
-                self.scope_dict = scope_dict
-            def actionPerformed(self, event):
-                # Update the location url combobox depending on the IP combobox 
-                selected_target = self.upnpcombo_targets.getSelectedItem()
-                if self.scope_dict and selected_target:
-                    self.upnpcombo_services.removeAllItems()
-                    for scope_url in self.scope_dict[selected_target]:
-                        self.upnpcombo_services.addItem(scope_url)
-                    self.upnpcombo_services.setSelectedIndex(0)
-
         # Create the combo box, select item at index 0 (first item in list)
         self.upnptargets = ["       "]
         self.upnpcombo_targets = JComboBox(self.upnptargets)
         self.upnpcombo_targets.setSelectedIndex(0)
         self.upnpcombo_targets.setEnabled(False)
-        self.upnpcombo_targets.addActionListener(ComboboxListener(self.upnpcombo_targets,self.upnpcombo_services,self.scope_dict))
+
+        # Set the action listeners for all the comboboxes
+        self.upnpcombo_targets.addActionListener(TargetComboboxListener(self.upnpcombo_targets,self.upnpcombo_services,self.ip_service_dict))
+        self.upnpcombo_services.addActionListener(ServiceComboboxListener(self.upnpcombo_services,self.upnpcombo_actions,self.services_dict))
+        self.upnpcombo_actions.addActionListener(ActionComboboxListener(self.upnpcombo_services,self.upnpcombo_actions,self.textarea_request,self.services_dict))
+
 
         # Configuring first step panel
         self.panel_step1 = JPanel()
@@ -221,7 +269,8 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         self.selectpanel_step2.add(self.upnpcombo_targets)
         self.selectpanel_step2.add(self.labelupnp)
         self.selectpanel_step2.add(self.upnpcombo_services)
-        self.selectpanel_step2.add(self.confirmbutton)
+        self.selectpanel_step2.add(self.labelactions)
+        self.selectpanel_step2.add(self.upnpcombo_actions)
         self.emptypanel_step2 = JPanel()
         self.emptypanel_step2.setLayout(BorderLayout())
         self.emptypanel_step2.add(self.labelempty_step2,BorderLayout.WEST)
@@ -243,49 +292,20 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         self.titlepanel_step3.add(self.labeltitle_step3,BorderLayout.NORTH)
         self.titlepanel_step3.add(self.labelsubtitle_step3)
         self.underpanel_step3 = JPanel()
+        self.underpanel_step3.setLayout(BorderLayout())
+        self.underpanel_step3.add((JScrollPane(self.textarea_request)),BorderLayout.NORTH)
+        self.actionpanel_step3 = JPanel()
+        self.actionpanel_step3.add(self.intruderbutton)
+        self.actionpanel_step3.add(self.repeaterbutton)
+        self.extrapanel_step3 = JPanel()
+        self.extrapanel_step3.setLayout(BorderLayout())
+        self.extrapanel_step3.add(self.actionpanel_step3,BorderLayout.WEST)
 
-        underlayout = GroupLayout(self.underpanel_step3)
-        self.underpanel_step3.setLayout(underlayout)
-        underlayout.setAutoCreateGaps(True)
-        underlayout.setAutoCreateContainerGaps(True)
-        left2right = underlayout.createSequentialGroup()
-        firstcolumn = underlayout.createParallelGroup()
-        firstcolumn.addComponent(self.label_step3, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)
-        firstcolumn.addComponent(self.labelLANHOST, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)
-        firstcolumn.addComponent(self.labelWANCONNECTION, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)
-        secondcolumn = underlayout.createParallelGroup()
-        secondcolumn.addComponent(self.labelSOAPnum)
-        secondcolumn.addComponent(self.labelLANHOSTnum)
-        secondcolumn.addComponent(self.labelWANCONNECTIONnum)
-        thirdcolumn = underlayout.createParallelGroup()
-        thirdcolumn.addComponent(self.intruderbutton)
-        thirdcolumn.addComponent(self.LANrepeaterbutton)
-        thirdcolumn.addComponent(self.WANrepeaterbutton)
-        left2right.addGroup(firstcolumn)
-        left2right.addGroup(secondcolumn)
-        left2right.addGroup(thirdcolumn)
-        top2bottom = underlayout.createSequentialGroup()
-        firstrow = underlayout.createParallelGroup()
-        firstrow.addComponent(self.label_step3, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)       
-        firstrow.addComponent(self.labelSOAPnum)        
-        firstrow.addComponent(self.intruderbutton)
-        secondrow = underlayout.createParallelGroup()
-        secondrow.addComponent(self.labelLANHOST, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)        
-        secondrow.addComponent(self.labelLANHOSTnum)
-        secondrow.addComponent(self.LANrepeaterbutton)       
-        thirdrow = underlayout.createParallelGroup()
-        thirdrow.addComponent(self.labelWANCONNECTION, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)        
-        thirdrow.addComponent(self.labelWANCONNECTIONnum) 
-        thirdrow.addComponent(self.WANrepeaterbutton)
-        top2bottom.addGroup(firstrow)
-        top2bottom.addGroup(secondrow)
-        top2bottom.addGroup(thirdrow)
-        underlayout.setHorizontalGroup(left2right)
-        underlayout.setVerticalGroup(top2bottom)
 
         # Assembling thirdd step panel components
         self.panel_step3.add(self.titlepanel_step3,BorderLayout.NORTH)
         self.panel_step3.add(self.underpanel_step3,BorderLayout.WEST)
+        self.panel_step3.add(self.extrapanel_step3,BorderLayout.SOUTH)
         self.uiPanelB.setBottomComponent(self.panel_step3) 
 
         # Assembling the group of all panels
@@ -339,21 +359,17 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
 
     def clearAll(self, e=None):
         # Reset all data of the plugin
-        self.all_SOAPs, self.LAN_SOAPs, self.WAN_SOAPs = {}, {}, {}
-        self.all_SOAP_list, self.LAN_SOAP_list, self.WAN_SOAP_list = [], [], []
+        self.services_dict.clear()
         self.progressbar.setString("Ready")
         self.progressbar.setValue(0)
         self.upnpcombo_targets.removeAllItems()
         self.upnpcombo_targets.setEnabled(False)
         self.upnpcombo_services.removeAllItems()
         self.upnpcombo_services.setEnabled(False)
-        self.confirmbutton.setEnabled(False)
+        self.upnpcombo_actions.removeAllItems()
+        self.upnpcombo_actions.setEnabled(False)
         self.intruderbutton.setEnabled(False)
-        self.labelSOAPnum.setText("0")
-        self.LANrepeaterbutton.setEnabled(False)
-        self.labelLANHOSTnum.setText("0")
-        self.WANrepeaterbutton.setEnabled(False)
-        self.labelWANCONNECTIONnum.setText("0")
+        self.repeaterbutton.setEnabled(False)
         self.labelNoneServiceFound.setText(" ")
         print("[+] Clearing all data")
         return
@@ -363,17 +379,14 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
     def startHunting(self, e=None):
         # Starting the UPnP hunt
         def startHunting_run():
+        
             # Initialize the internal parameters every time the start-discovery button is clicked
-            self.all_SOAPs, self.LAN_SOAPs, self.WAN_SOAPs = {}, {}, {}
-            self.all_SOAP_list, self.LAN_SOAP_list, self.WAN_SOAP_list = [], [], []
+            self.services_dict.clear()
             found_loc = []
+            discovery_files = []
             self.labelNoneServiceFound.setText(" ")
             self.intruderbutton.setEnabled(False)
-            self.labelSOAPnum.setText("0")
-            self.LANrepeaterbutton.setEnabled(False)
-            self.labelLANHOSTnum.setText("0")
-            self.WANrepeaterbutton.setEnabled(False)
-            self.labelWANCONNECTIONnum.setText("0")
+            self.repeaterbutton.setEnabled(False)
             
             # Then determine if targerting IPv4 or IPv6 adresses
             if self.combo_ipversion.getSelectedItem() == "IPv4":
@@ -390,17 +403,79 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             self.progressbar.setValue(40)
             discovery_files = self.downloadXMLfiles(found_loc)
             self.progressbar.setValue(60)
-            self.all_SOAPs,self.LAN_SOAPs,self.WAN_SOAPs = self.buildSOAPs(discovery_files)
+            self.services_dict = self.buildSOAPs(discovery_files)
             self.progressbar.setValue(80)
             self.progressbar.setString("Done")
             self.progressbar.setValue(100)
 
+
+#             # TEST DATA 
+#             service = "http://127.0.0.1:9000/services.xml"
+#             actions = {}
+#             actions["Action1"] = ["""POST /upnp/control/Action1 HTTP/1.1
+# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
+# Host: 192.168.1.1:49155
+# Content-Type: text/xml
+# Content-Length: 437
+
+# <?xml version="1.0"?>
+# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+# <SOAP-ENV:Body>
+#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
+#         <NewProtocol>FUZZ_HERE</NewProtocol>
+#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
+#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
+#     </m:DeletePortMapping>
+# </SOAP-ENV:Body>
+# </SOAP-ENV:Envelope>"""]
+#             actions["Action2"] = ["""POST /upnp/control/Action2 HTTP/1.1
+# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
+# Host: 192.168.1.1:49155
+# Content-Type: text/xml
+# Content-Length: 437
+
+# <?xml version="1.0"?>
+# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+# <SOAP-ENV:Body>
+#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
+#         <NewProtocol>FUZZ_HERE</NewProtocol>
+#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
+#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
+#     </m:DeletePortMapping>
+# </SOAP-ENV:Body>
+# </SOAP-ENV:Envelope>"""]
+#             actions["Action3"] = ["""POST /upnp/control/Action3 HTTP/1.1
+# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
+# Host: 192.168.1.1:49155
+# Content-Type: text/xml
+# Content-Length: 437
+
+# <?xml version="1.0"?>
+# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+# <SOAP-ENV:Body>
+#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
+#         <NewProtocol>FUZZ_HERE</NewProtocol>
+#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
+#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
+#     </m:DeletePortMapping>
+# </SOAP-ENV:Body>
+# </SOAP-ENV:Envelope>"""]
+#             self.services_dict[service] = actions
+
+
             # Update the comboboxes list with the discovered UPnPs
             self.upnpcombo_targets.setEnabled(True)
             self.upnpcombo_services.setEnabled(True)
-            self.updateComboboxList(found_loc)
+            self.upnpcombo_actions.setEnabled(True)
+            self.intruderbutton.setEnabled(True)
+            self.repeaterbutton.setEnabled(True)
+
+            self.updateComboboxList(self.services_dict)
+
             if self.STOP_THREAD:
                 return
+
+
 
         # Start a background thread to run the above nested function in order to prevent the blocking of plugin UI
         self.th = threading.Thread(target=startHunting_run)
@@ -491,9 +566,8 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             print("[+] Start hunting with \"Ssdp:All\" ssdp request type")
             ssdp_responses = self.sendMsearch(ssdp_requests[0], self.SSDP_MULTICAST_IPv4[0], self.SSDP_MULTICAST_PORT)
             # Then try with the alternative "Root:Device" request type
-            if not ssdp_responses:
-                print("[+] Retrying with \"Root:Device\" ssdp request type")
-                ssdp_responses = self.sendMsearch(ssdp_requests[1], self.SSDP_MULTICAST_IPv4[0], self.SSDP_MULTICAST_PORT)
+            print("[+] Adding results with \"Root:Device\" ssdp request type")
+            ssdp_responses.extend(self.sendMsearch(ssdp_requests[1], self.SSDP_MULTICAST_IPv4[0], self.SSDP_MULTICAST_PORT))
             # Extract location heaader information from ssdp response
             if ssdp_responses:
                 for ssdp_resp in ssdp_responses:
@@ -501,7 +575,7 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
                     if location_result and (location_result.group(1) in locations) == False:
                         locations.add(location_result.group(1))
             else:
-                print("[!] Unsucessfull hunt, none active UPnP service was found. Try with other target IPs")
+                print("[!] Unsucessfull hunt, no active UPnP service was found. Try with other target IPs")
             upnp_locations = list(locations)
         else:
             # Note: IPv6 addresses in Host header for RFC2732 have to be enclosed between square brackets
@@ -517,17 +591,15 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             print("[+] Start hunting with \"Ssdp:All\" ssdp request type")
             ssdp_responses_ll = self.sendMsearch(ssdp_requests[0], self.SSDP_MULTICAST_IPv6[0], self.SSDP_MULTICAST_PORT)
             # Then try with the alternative "Root:Device" request type
-            if not ssdp_responses_ll:
-                print("[+] Retrying with \"Root:Device\" ssdp request type")
-                ssdp_responses_ll = self.sendMsearch(ssdp_requests[1], self.SSDP_MULTICAST_IPv6[0], self.SSDP_MULTICAST_PORT)
+            print("[+] Adding responses with \"Root:Device\" ssdp request type")
+            ssdp_responses_ll.extent(self.sendMsearch(ssdp_requests[1], self.SSDP_MULTICAST_IPv6[0], self.SSDP_MULTICAST_PORT))
             # IPv6 site-local section
             # First try with "Ssdp:All" request type
             print("[+] Start hunting with \"Ssdp:All\" ssdp request type")
             ssdp_responses_sl = self.sendMsearch(ssdp_requests[2], self.SSDP_MULTICAST_IPv6[1], self.SSDP_MULTICAST_PORT)
             # Then try with the alternative "Root:Device" request type
-            if not ssdp_responses_sl:
-                print("[+] Retrying with \"Root:Device\" ssdp request type")
-                ssdp_responses_sl = self.sendMsearch(ssdp_requests[3], self.SSDP_MULTICAST_IPv6[1], self.SSDP_MULTICAST_PORT)
+            print("[+] Retrying with \"Root:Device\" ssdp request type")
+            ssdp_responses_sl.extend(self.sendMsearch(ssdp_requests[3], self.SSDP_MULTICAST_IPv6[1], self.SSDP_MULTICAST_PORT))
 
             # Extract location heaader information from ssdp response
             if ssdp_responses_ll or ssdp_responses_sl:
@@ -538,53 +610,48 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
                     if location_result and (location_result.group(1) in locations) == False:
                         locations.add(location_result.group(1))
             else:
-                print("[!] Unsucessfull hunt, none active UPnP service was found. Try with other target IPs")
+                print("[!] Unsucessfull hunt, no active UPnP service was found. Try with other target IPs")
             upnp_locations = list(locations)
         # Finally return the discovered locations
         return upnp_locations
 
 
 
-    def updateComboboxList(self, cb_list):
+    def updateComboboxList(self, serv_dict):
         # Update the combobox items after location urls have been found
-        def updateComboboxList_run(cb_list):
-            scope_list = []
-            cb_dict = {}
+        def updateComboboxList_run(serv_dict):
             # Reinitialize the two comboboxes
-            self.upnpcombo_targets.removeAllItems()
-            self.upnpcombo_services.removeAllItems()
+            try:
+                self.upnpcombo_targets.removeAllItems()
+                self.upnpcombo_services.removeAllItems()
+                self.upnpcombo_actions.removeAllItems()
+            except BaseException as e:
+                print(e)
             # First check if any UPnP service was found
-            if not cb_list:
-                self.upnpcombo_targets.addItem("None UPnP service found")
+            if not serv_dict:
+                self.upnpcombo_targets.addItem("No UPnP services found")
                 return
             # Build a dict of found IPs and location urls
-            for cb_url in cb_list:
-                parsed_cb_url = urlparse(cb_url)
-                cb_ip = parsed_cb_url.netloc.split(":")[0]
-                if cb_ip in cb_dict:
+            for scdp_url in serv_dict:
+                parsed_scdp_url = urlparse(scdp_url)
+                scdp_ip = parsed_scdp_url.netloc.split(":")[0]
+                if scdp_ip in self.ip_service_dict:
                     # Append the new number to the existing array at this slot
-                    cb_dict[cb_ip].append(cb_url)
+                    self.ip_service_dict[scdp_ip].append(scdp_url)
                 else:
                     # Create a new array in this slot
-                    cb_dict[cb_ip] = [cb_url]
-            # All the found UPnP services are considered in scope
-            self.scope_dict.clear()
-            for ip in cb_dict:
-                self.scope_dict[ip] = cb_dict[ip]
-            # Set the found IPs on the ip list combobox
-            for scope_ip in self.scope_dict:
-                self.upnpcombo_targets.addItem(scope_ip)
-            # Set the found location urls in the upnp list combobox
-            selected_ip = self.upnpcombo_targets.getSelectedItem()
-            self.upnpcombo_services.removeAllItems()
-            for scope_url in self.scope_dict[selected_ip]:
-                self.upnpcombo_services.addItem(scope_url)
+                    self.ip_service_dict[scdp_ip] = [scdp_url]
 
-            # Select the first element in the combobox by default
-            self.upnpcombo_services.setSelectedIndex(0)
-            self.confirmbutton.setEnabled(True)
+            # Add all the found IPs to the targets combo box
+            for ip in self.ip_service_dict:
+                self.upnpcombo_targets.addItem(ip)
+
+            # Select the first element in the combobox by default - this will trigger the other comoboboxes to update
+            self.upnpcombo_targets.setSelectedIndex(0)
+
+
         # Call the runnable method to update the plugin UI with results
-        SwingUtilities.invokeLater(PyRunnable(updateComboboxList_run, cb_list))
+        SwingUtilities.invokeLater(PyRunnable(updateComboboxList_run, serv_dict))
 
 
 
@@ -627,21 +694,27 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
                     else:
                         print("[!] Skipping, failed to retrieve the XML file from: %s ") % d_url
                 else:
-                    # For IPv4 build the http download requests using Burp functions
-                    ba_download_req = self.helpers.buildHttpRequest(URL(d_url_parsed.scheme, d_host, int(d_port), d_url_parsed.path))
-                    ba_download_resp = self.callbacks.makeHttpRequest(d_host, int(d_port), is_https, ba_download_req)
-                    if ba_download_resp:
-                        download_resp = "".join(map(chr, ba_download_resp))
-                    if download_resp:
-                        print("[+] Successfully downloaded xml file \"%s\" ") % d_url
-                        # Extract the response body
-                        splitted_resp = download_resp.split("\r\n\r\n")
-                        if len(splitted_resp) > 1:
-                            xml_files_dict[d_url] = splitted_resp[1]
-                    else:
-                        print("[!] Skipping, failed to retrieve the XML file from: %s ") % d_url
+                    try:
+                        # For IPv4 build the http download requests using Burp functions
+                        ba_download_req = self.helpers.buildHttpRequest(URL(d_url_parsed.scheme, d_host, int(d_port), d_url_parsed.path))
+                        ba_download_resp = self.callbacks.makeHttpRequest(d_host, int(d_port), is_https, ba_download_req)
+                        if ba_download_resp:
+                            try:
+                                download_resp = "".join(map(lambda x: chr(x % 256), ba_download_resp))
+                            except BaseException as e:
+                                print("[!] Got exception reading response \"%s\" ") % e
+                            #download_resp = ba_download_resp.decode("ASCII")
+                        if download_resp:
+                            print("[+] Successfully downloaded xml file \"%s\" ") % d_url
+                            # Extract the response body
+                            splitted_resp = download_resp.split("\r\n\r\n")
+                            if len(splitted_resp) > 1:
+                                xml_files_dict[d_url] = splitted_resp[1]
+                        else:
+                            print("[!] Skipping, failed to retrieve the XML file from: %s ") % d_url
+                    except BaseException as e:
+                        print(e)
         return xml_files_dict
-
 
 
     def parseXMLfile(self, file_content, location_url):
@@ -651,63 +724,54 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         service_list = []
         action_list = []
         arg_list = []
-        # First remove newlines and whitelines from the xml file
-        file2parse = re.sub(r"[\r\n\s\t]*","", file_content)
-        # Check if is a Description (with location_url) or SCDP file
+
+        #parse the file into an element tree
+        try:
+            tree = xml.dom.minidom.parseString(file_content)
+        except BaseException as e:
+            print("[!] Exception parsing XML document: " + e.message)
+            return output_dict
+        root = tree.documentElement
+         # Check if is a Description (with location_url) or SCDP file
         if location_url:
-            # Parse the Description XML file to extract the info about Services
-            base_URL_elem = re.search("<base_URL>(.*?)</base_URL>", file2parse)
             # Retrieve the baseURL item
+            base_URL_elem = root.getElementsByTagName('base_URL')
             if base_URL_elem:
-                base_URL = base_URL_elem.groups()[0].rstrip('/')
+                base_URL = base_URL_elem[0].rstrip('/')
             else:
                 url = urlparse(location_url)
                 base_URL = '%s://%s' % (url.scheme, url.netloc)
-            service_list = re.findall("<service>(.*?)</service>", file2parse)
-            # Retrieve serviceType, controlURL and SCDPURL values
+            # Retrieve the services list
+            service_list = root.getElementsByTagName('service')
             for serv in service_list:
-                service_type = re.search("<serviceType>(.*?)</serviceType>", serv).groups()[0]                
-                if not (re.search("<controlURL>(.*?)</controlURL>", serv).groups()[0]).startswith("/"):
-                    ctrl_path = "/" + re.search("<controlURL>(.*?)</controlURL>", serv).groups()[0]
-                else:
-                    ctrl_path = re.search("<controlURL>(.*?)</controlURL>", serv).groups()[0]
-                if not (re.search("<SCPDURL>(.*?)</SCPDURL>", serv).groups()[0]).startswith("/"):
-                    scdp_path = "/" + re.search("<SCPDURL>(.*?)</SCPDURL>", serv).groups()[0]
-                else:
-                    scdp_path = re.search("<SCPDURL>(.*?)</SCPDURL>", serv).groups()[0]
+                service_type = serv.getElementsByTagName('serviceType')[0].firstChild.nodeValue
+                ctrl_path = serv.getElementsByTagName('controlURL')[0].firstChild.nodeValue
+                if ctrl_path and not ctrl_path.startswith("/"):
+                    ctrl_path = "/" + ctrl_path
+
+                scpd_path = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
+                if scpd_path and not scpd_path.startswith("/"):
+                    scpd_path = "/" + scpd_path
+
                 ctrl_URL = base_URL + ctrl_path
-                scpd_URL = base_URL + scdp_path
+                scpd_URL = base_URL + scpd_path
                 # Aggregate the extracted info 
                 output_dict[service_type] = [ctrl_URL, scpd_URL]
         else:
             # Parse the SCDP xml file to extract the info about Actions
-            action_list = re.findall("(<action>.*?)</action>", file2parse)
-            # Retrieve action-name and if present the argument-name values
+            action_list = root.getElementsByTagName('action')
             for act in action_list:
-                act_name = re.search("<action><name>(.*?)</name>", act).groups()[0]
+                act_name = act.getElementsByTagName('name')[0].firstChild.nodeValue
+                arg_list = act.getElementsByTagName('argument')
                 arg_name = []
-                # Determine if is a Get-action or not
-                if act_name.startswith("Get"):
-                    # Get-action found
-                    arg_direction = re.search("<argument><name>(.*?)</name><direction>(.*?)</direction>", act)
-                    if arg_direction and "in" in arg_direction.groups()[1]:
-                        # Get-action with input arguments
-                        arg_name.append(str(arg_direction.groups()[0]))
-                    else:
-                        # Get-action without input arguments are discarded
-                        arg_name.append("")
-                else:
-                    # Other than Get-action found
-                    arg_exists = re.search("<argument><name>(.*?)</name>", act)
-                    if arg_exists:
-                        arg_list = re.findall("<argument><name>(.*?)</name>", act)
-                        for arg in arg_list:
-                            arg_name.append(arg)
-                    else:
-                        # Other than Get-action without any argument are discarded
-                        arg_name.append("")
+                for arg in arg_list:
+                    direction = arg.getElementsByTagName('direction')[0].firstChild.nodeValue
+                    if not direction or direction == "in":
+                        arg_name.append(arg.getElementsByTagName('name')[0].firstChild.nodeValue)
                 output_dict[act_name] = arg_name
+
         return output_dict
+
 
 
 
@@ -771,167 +835,72 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             </m:DeletePortMapping>
         </SOAP-ENV:Body>
         </SOAP-ENV:Envelope>
-        '''        
+        '''      
         return soap_req
 
 
 
     def buildSOAPs(self, discovery_files_dict):
         # Retrieve all SOAP requests of the discovered UPnP services
-        action_dict = {}
-        scdp_dict = {}
-        soap_reqs_dict, LAN_reqs_dict, WAN_reqs_dict = {}, {}, {}
+        all_requests_dict = {}
+
         for loc_url, loc_file in discovery_files_dict.iteritems():
-            services_dict = self.parseXMLfile(loc_file, loc_url)
-            all_soap_reqs, LAN_soap_reqs, WAN_soap_reqs = [], [], []
-            skip_LAN = True
-            skip_WAN = True
-            for s_type in services_dict:
-                scdp_list = []
-                scdp_list.append(services_dict[s_type][1])
+            #get a list of services defined in the discovery file, and it's control and scpd urls
+            services = self.parseXMLfile(loc_file, loc_url)
+
+            for s_type in services:
+                action_dict = {}
+                scdp_url = services[s_type][1]
+
                 # Extract the juicy info from SCDP files
-                print("[+] Downloading the SCDP file: \"%s\"") % services_dict[s_type][1]
-                scdp_dict = self.downloadXMLfiles(scdp_list)
+                print("[+] Downloading the SCDP file: \"%s\"") % scdp_url
+                scdp_dict = self.downloadXMLfiles([scdp_url])
                 if not scdp_dict:
                     print("[!] Warning, none UPnP service was found for location url %s") % loc_url
                     continue
                 for scdp_file in scdp_dict.values():
-                    action_dict = self.parseXMLfile(scdp_file, None)
-                # Build All the UPnP soap requests
-                for ac_name in action_dict:
-                    all_soap_reqs.append(self.soapReqBuilder(s_type, services_dict[s_type][0], ac_name, action_dict[ac_name]))    
-                # Build only the LAN UPnP soap requests
-                if "LANHostConfigManagement" in s_type:
-                    skip_LAN = False
-                    for ac_name in action_dict:
-                        LAN_soap_reqs.append(self.soapReqBuilder(s_type, services_dict[s_type][0], ac_name, action_dict[ac_name]))
-                # Build only the WAN UPnP soap requests
-                if "WANIPConnection" in s_type or "WANPPPConnection" in s_type:
-                    skip_WAN = False
-                    for ac_name in action_dict:
-                        WAN_soap_reqs.append(self.soapReqBuilder(s_type, services_dict[s_type][0], ac_name, action_dict[ac_name]))
-            # Aggregate the built soap requests for each discovered location url
-            if not skip_LAN:
-                # Only LAN soap requests
-                if LAN_soap_reqs:
-                    LAN_reqs_dict[loc_url] = LAN_soap_reqs
-            if not skip_WAN:
-                #  Only WAN soap requests
-                if WAN_soap_reqs:
-                    WAN_reqs_dict[loc_url] = WAN_soap_reqs
-            # All soap requests
-            if all_soap_reqs:
-                soap_reqs_dict[loc_url] = all_soap_reqs
-        return soap_reqs_dict, LAN_reqs_dict, WAN_reqs_dict
+                    actions = self.parseXMLfile(scdp_file, None)
+                    # Build All the UPnP soap requests
+                    for ac_name in actions:
+                        action_dict[ac_name] = self.soapReqBuilder(s_type, services[s_type][0], ac_name, actions[ac_name])  
+                    #add the scdp url(s) to a list for selection later
+                all_requests_dict[scdp_url] = action_dict
+            
+        return all_requests_dict
 
 
 
-    def getAllSOAPs(self, location_url):
-        all_list = []
-        if location_url in self.all_SOAPs:
-            all_list = self.all_SOAPs[location_url]
-        return all_list
+    def sendToRepeater(self, e=None):
+        # Send the request to the repeater tool
+
+        print("[+] Sending request to repeater")
+       
+        soap_req = self.textarea_request.getText()
+        print(soap_req)
+        destination = re.search(r'Host: (.*?)\n', soap_req)
+        host = destination.group(1).split(":")[0]
+        if ":" in destination.group(1):
+            port = destination.group(1).split(":")[1]
+        else:
+            port = '80'
+
+        ba_req = bytearray(soap_req, 'utf8')
+        self.callbacks.sendToRepeater(host, int(port), False, ba_req, None)
 
 
 
-    def getLANSOAPs(self, location_url):
-        LAN_list = []
-        if location_url in self.LAN_SOAPs:
-            LAN_list = self.LAN_SOAPs[location_url]
-        return LAN_list
-
-
-
-    def getWANSOAPs(self, location_url):
-        WAN_list = []
-        if location_url in self.WAN_SOAPs:
-            WAN_list = self.WAN_SOAPs[location_url]
-        return WAN_list
-
-
-
-    def selectIP(self, e=None):
-        # Retrieve the SOAP requests from the selected UPnP service
-        selected_ip = self.upnpcombo_targets.getSelectedItem()
-        print("[+] Selected IP \"%s\"") % str(selected_ip)
-
-
-
-    def selectUPnPService(self, e=None):
-        # Retrieve the SOAP requests from the selected UPnP service
-        selected_upnp = self.upnpcombo_services.getSelectedItem()
-        print("[+] Selected UPnP service at url \"%s\"") % str(selected_upnp)
-        # Check if almost an UPnP service was detected
-        if not self.getAllSOAPs(selected_upnp):
-            self.labelNoneServiceFound.setText("WARNING: none UPnP service was found for this location url")
-            return
-
-        # Disable all step three buttons every time the selected UPnP changes
-        self.intruderbutton.setEnabled(False)
-        self.LANrepeaterbutton.setEnabled(False)
-        self.LANrepeaterbutton.setEnabled(False)
-        
-        # Extract the built SOAP requests for the selected UPnP service
-        self.all_SOAP_list = list(set(self.getAllSOAPs(selected_upnp)))
-        self.LAN_SOAP_list = list(set(self.getLANSOAPs(selected_upnp)))
-        self.WAN_SOAP_list = list(set(self.getWANSOAPs(selected_upnp)))
-        
-        # Update the plugin UI with the retrieved UPnP profiles to analyze
-        if len(self.all_SOAP_list) > 0:
-            self.intruderbutton.setEnabled(True)
-        self.labelSOAPnum.setText(str(len(self.all_SOAP_list)))
-        if len(self.LAN_SOAP_list) > 0:
-            self.LANrepeaterbutton.setEnabled(True)
-        self.labelLANHOSTnum.setText(str(len(self.LAN_SOAP_list)))
-        if len(self.WAN_SOAP_list) > 0:
-            self.WANrepeaterbutton.setEnabled(True)
-        self.labelWANCONNECTIONnum.setText(str(len(self.WAN_SOAP_list)))
-
-
-
-    def sendWANUPnPToRepeater(self, e=None):
-        # Send the WAN soap requests to the repeater tool
-        if self.WAN_SOAP_list:
-            print("[+] Sending to repeater only the WANIP/PPPConnection Soap requests")
-            for soap_req in self.WAN_SOAP_list:
-                destination = re.search(r'Host: (.*?)\n', soap_req)
-                host = destination.group(1).split(":")[0]
-                if ":" in destination.group(1):
-                    port = destination.group(1).split(":")[1]
-                else:
-                    port = '80'
-                ba_req = bytearray(soap_req)
-                self.callbacks.sendToRepeater(host, int(port), False, ba_req, None)
-
-
-
-    def sendLANUPnPToRepeater(self, e=None):
-        # Send the LAN soap requests to the repeater tool
-        if self.LAN_SOAP_list:
-            print("[+] Sending to repeater only the LANHostConfigManagement Soap requests")
-            for soap_req in self.LAN_SOAP_list:
-                destination = re.search(r'Host: (.*?)\n', soap_req)
-                host = destination.group(1).split(":")[0]
-                if ":" in destination.group(1):
-                    port = destination.group(1).split(":")[1]
-                else:
-                    port = '80'
-                ba_req = bytearray(soap_req)
-                self.callbacks.sendToRepeater(host, int(port), False, ba_req, None)
-
-
-
-    def sendUPnPToIntruder(self, e=None):
+    def sendToIntruder(self, e=None):
         # Send the all the soap requests to the intruder tool
-        if self.all_SOAP_list:
-            print("[+] Sending to intruder all the Soap requests")
-            for soap_req in self.all_SOAP_list:
-                destination = re.search(r'Host: (.*?)\n', soap_req)
-                host = destination.group(1).split(":")[0]
-                if ":" in destination.group(1):
-                    port = destination.group(1).split(":")[1]
-                else:
-                    port = '80'           
-                ba_req = bytearray(soap_req)
-                self.callbacks.sendToIntruder(host, int(port), False, ba_req)
+        print("[+] Sending request to intruder")
+        soap_req = self.textarea_request.getText()
+        print(soap_req)
+        destination = re.search(r'Host: (.*?)\n', soap_req)
+        host = destination.group(1).split(":")[0]
+        if ":" in destination.group(1):
+            port = destination.group(1).split(":")[1]
+        else:
+            port = '80'
+        ba_req = bytearray(soap_req, 'utf8')
+        self.callbacks.sendToIntruder(host, int(port), False, ba_req)
+
 
