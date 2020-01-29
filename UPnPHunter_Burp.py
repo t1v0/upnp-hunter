@@ -461,9 +461,11 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
 #     </m:DeletePortMapping>
 # </SOAP-ENV:Body>
 # </SOAP-ENV:Envelope>"""]
-            self.services_dict[service] = actions
+#           self.services_dict[service] = actions
 
 
+            self.updateComboboxList(self.services_dict)
+            
             # Update the comboboxes list with the discovered UPnPs
             self.upnpcombo_targets.setEnabled(True)
             self.upnpcombo_services.setEnabled(True)
@@ -471,7 +473,7 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             self.intruderbutton.setEnabled(True)
             self.repeaterbutton.setEnabled(True)
 
-            self.updateComboboxList(self.services_dict)
+          
 
             if self.STOP_THREAD:
                 return
