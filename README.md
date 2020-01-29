@@ -18,6 +18,13 @@ The tutorial below explain, better than so many words, how to use the plugin:
 
 # Author
 - UPnP BHunter plugin was developed by Maurizio Siddu
+- UPnP BHunter plugin was modified by t1v0
+
+# Changes
+- Changed MSearch to perform both ssdp:all and upnp:rootdevices since some devices will only respond to one or the other (i.e. Belkin WeMo switch)
+- Fixed unsigned integer conversion error when creating byte array
+- Modified the UI to expose services and actions directly and show the full request in a text area with the option to send to either repeater or interpreter
+- Changed the xml parsing to use xmldom library instead of regex search since some scdp files don't follow the syntax previously expected (i.e. Belkin WeMo switch had <retVal/> tags which broke argument parsing)
 
 
 # GNU License
