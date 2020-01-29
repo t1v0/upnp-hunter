@@ -467,11 +467,12 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             self.updateComboboxList(self.services_dict)
             
             # Update the comboboxes list with the discovered UPnPs
-            self.upnpcombo_targets.setEnabled(True)
-            self.upnpcombo_services.setEnabled(True)
-            self.upnpcombo_actions.setEnabled(True)
-            self.intruderbutton.setEnabled(True)
-            self.repeaterbutton.setEnabled(True)
+            if (self.services_dict):
+                self.upnpcombo_targets.setEnabled(True)
+                self.upnpcombo_services.setEnabled(True)
+                self.upnpcombo_actions.setEnabled(True)
+                self.intruderbutton.setEnabled(True)
+                self.repeaterbutton.setEnabled(True)
 
           
 
@@ -595,7 +596,7 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             ssdp_responses_ll = self.sendMsearch(ssdp_requests[0], self.SSDP_MULTICAST_IPv6[0], self.SSDP_MULTICAST_PORT)
             # Then try with the alternative "Root:Device" request type
             print("[+] Adding responses with \"Root:Device\" ssdp request type")
-            ssdp_responses_ll.extent(self.sendMsearch(ssdp_requests[1], self.SSDP_MULTICAST_IPv6[0], self.SSDP_MULTICAST_PORT))
+            ssdp_responses_ll.extend(self.sendMsearch(ssdp_requests[1], self.SSDP_MULTICAST_IPv6[0], self.SSDP_MULTICAST_PORT))
             # IPv6 site-local section
             # First try with "Ssdp:All" request type
             print("[+] Start hunting with \"Ssdp:All\" ssdp request type")
