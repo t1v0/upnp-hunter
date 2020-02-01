@@ -202,7 +202,7 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
                     selected_action = self.upnpcombo_actions.getSelectedItem()
                     selected_service = self.upnpcombo_services.getSelectedItem()
                     if self.services and selected_action:
-                        self.textarea_request.setText(self.services[selected_service][selected_action][0])
+                        self.textarea_request.setText(self.services[selected_service][selected_action])
                 except BaseException as e:
                     print("[!] Exception selecting action: \"%s\" ") % e
 
@@ -404,68 +404,19 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             self.progressbar.setValue(40)
             discovery_files = self.downloadXMLfiles(found_loc)
             self.progressbar.setValue(60)
-            self.services_dict = self.buildSOAPs(discovery_files)
+            self.buildSOAPs(discovery_files)
             self.progressbar.setValue(80)
             self.progressbar.setString("Done")
             self.progressbar.setValue(100)
 
-
-#             # TEST DATA 
-#             service = "http://127.0.0.1:9000/services.xml"
-#             actions = {}
-#             actions["Action1"] = ["""POST /upnp/control/Action1 HTTP/1.1
-# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
-# Host: 192.168.1.1:49155
-# Content-Type: text/xml
-# Content-Length: 437
-
-# <?xml version="1.0"?>
-# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-# <SOAP-ENV:Body>
-#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
-#         <NewProtocol>FUZZ_HERE</NewProtocol>
-#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
-#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
-#     </m:DeletePortMapping>
-# </SOAP-ENV:Body>
-# </SOAP-ENV:Envelope>"""]
-#             actions["Action2"] = ["""POST /upnp/control/Action2 HTTP/1.1
-# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
-# Host: 192.168.1.1:49155
-# Content-Type: text/xml
-# Content-Length: 437
-
-# <?xml version="1.0"?>
-# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-# <SOAP-ENV:Body>
-#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
-#         <NewProtocol>FUZZ_HERE</NewProtocol>
-#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
-#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
-#     </m:DeletePortMapping>
-# </SOAP-ENV:Body>
-# </SOAP-ENV:Envelope>"""]
-#             actions["Action3"] = ["""POST /upnp/control/Action3 HTTP/1.1
-# SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#DeletePortMapping"
-# Host: 192.168.1.1:49155
-# Content-Type: text/xml
-# Content-Length: 437
-
-# <?xml version="1.0"?>
-# <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-# <SOAP-ENV:Body>
-#     <m:DeletePortMapping xmlns:m="urn:schemas-upnp-org:service:WANIPConnection:1">
-#         <NewProtocol>FUZZ_HERE</NewProtocol>
-#         <NewExternalPort>FUZZ_HERE</NewExternalPort>
-#         <NewRemoteHost>FUZZ_HERE</NewRemoteHost>
-#     </m:DeletePortMapping>
-# </SOAP-ENV:Body>
-# </SOAP-ENV:Envelope>"""]
-#           self.services_dict[service] = actions
-
+            print(self.services_dict)
 
             self.updateComboboxList(self.services_dict)
-            
+
+            print("/n/n/n/n")
+            print(self.services_dict)
+
+                
             # Update the comboboxes list with the discovered UPnPs
             if (self.services_dict):
                 self.upnpcombo_targets.setEnabled(True)
@@ -667,17 +618,21 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         # First check if list of location urls is empty
         if download_urls:
             for d_url in download_urls:
-                # Extract the various location url items
-                d_url_parsed = urlparse(d_url)
-                if d_url_parsed.scheme == "http":
-                    is_https = False
-                d_netloc = d_url_parsed.netloc
-                d_host = d_netloc.split(":")[0]
-                # Determine service port
-                if not ":" in d_netloc:
-                    d_port = "80"
-                else:
-                    d_port = d_netloc.split(":")[1]
+                try:
+                    # Extract the various location url items
+                    d_url_parsed = urlparse(d_url)
+                    if d_url_parsed.scheme == "http":
+                        is_https = False
+                    d_netloc = d_url_parsed.netloc
+                    d_host = d_netloc.split(":")[0]
+                    # Determine service port
+                    if not ":" in d_netloc:
+                        d_port = "80"
+                    else:
+                        d_port = d_netloc.split(":")[1]
+                except BaseException as e:
+                    print(e)
+
                 # Build the http download requests for IPv4 and IPv6
                 if not self.ipv4_selected:
                     # For IPv6 a little workaround with urllib2 is needed at the moment
@@ -691,17 +646,21 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
                         #print e
                     if download_resp and download_resp.code == 200 and download_resp.msg:
                         print("[+] Successfully downloaded xml file \"%s\" ") % d_url
-                        # Extract the response body
-                        splitted_resp = download_resp.read()
-                        if len(splitted_resp) > 1:
-                            xml_files_dict[d_url] = splitted_resp
+                        try:
+                            # Extract the response body
+                            splitted_resp = download_resp.read()
+                            if len(splitted_resp) > 1:
+                                xml_files_dict[d_url] = splitted_resp
+                        except BaseException as e:
+                            print(e)
                     else:
                         print("[!] Skipping, failed to retrieve the XML file from: %s ") % d_url
                 else:
+                    # For IPv4 build the http download requests using Burp functions
                     try:
-                        # For IPv4 build the http download requests using Burp functions
                         ba_download_req = self.helpers.buildHttpRequest(URL(d_url_parsed.scheme, d_host, int(d_port), d_url_parsed.path))
                         ba_download_resp = self.callbacks.makeHttpRequest(d_host, int(d_port), is_https, ba_download_req)
+
                         if ba_download_resp:
                             try:
                                 download_resp = "".join(map(lambda x: chr(x % 256), ba_download_resp))
@@ -748,12 +707,20 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             # Retrieve the services list
             service_list = root.getElementsByTagName('service')
             for serv in service_list:
-                service_type = serv.getElementsByTagName('serviceType')[0].firstChild.nodeValue
-                ctrl_path = serv.getElementsByTagName('controlURL')[0].firstChild.nodeValue
+                service = serv.getElementsByTagName('serviceType')[0].firstChild
+                if service is not None:
+                    service_type = serv.getElementsByTagName('serviceType')[0].firstChild.nodeValue
+                ctrl = serv.getElementsByTagName('controlURL')[0].firstChild
+                if ctrl is not None:
+                     ctrl_path = serv.getElementsByTagName('controlURL')[0].firstChild.nodeValue
+
                 if ctrl_path and not ctrl_path.startswith("/"):
                     ctrl_path = "/" + ctrl_path
 
-                scpd_path = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
+                scpd = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
+                if scpd is not None:
+                    scpd_path = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
+
                 if scpd_path and not scpd_path.startswith("/"):
                     scpd_path = "/" + scpd_path
 
@@ -848,10 +815,12 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         # Retrieve all SOAP requests of the discovered UPnP services
         all_requests_dict = {}
 
+        print("here")
         for loc_url, loc_file in discovery_files_dict.iteritems():
             #get a list of services defined in the discovery file, and it's control and scpd urls
             services = self.parseXMLfile(loc_file, loc_url)
 
+            print("parsed xml file")
             for s_type in services:
                 action_dict = {}
                 scdp_url = services[s_type][1]
@@ -868,9 +837,9 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
                     for ac_name in actions:
                         action_dict[ac_name] = self.soapReqBuilder(s_type, services[s_type][0], ac_name, actions[ac_name])  
                     #add the scdp url(s) to a list for selection later
-                all_requests_dict[scdp_url] = action_dict
+                self.services_dict[scdp_url] = action_dict
             
-        return all_requests_dict
+        return
 
 
 
