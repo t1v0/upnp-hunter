@@ -809,13 +809,10 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
     def buildSOAPs(self, discovery_files_dict):
         # Retrieve all SOAP requests of the discovered UPnP services
         all_requests_dict = {}
-
-        print("here")
         for loc_url, loc_file in discovery_files_dict.iteritems():
             #get a list of services defined in the discovery file, and it's control and scpd urls
             services = self.parseXMLfile(loc_file, loc_url)
 
-            print("parsed xml file")
             for s_type in services:
                 action_dict = {}
                 scdp_url = services[s_type][1]
@@ -844,7 +841,6 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         print("[+] Sending request to repeater")
        
         soap_req = self.textarea_request.getText()
-        print(soap_req)
         destination = re.search(r'Host: (.*?)\n', soap_req)
         host = destination.group(1).split(":")[0]
         if ":" in destination.group(1):
@@ -861,7 +857,6 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         # Send the all the soap requests to the intruder tool
         print("[+] Sending request to intruder")
         soap_req = self.textarea_request.getText()
-        print(soap_req)
         destination = re.search(r'Host: (.*?)\n', soap_req)
         host = destination.group(1).split(":")[0]
         if ":" in destination.group(1):
