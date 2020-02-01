@@ -408,13 +408,8 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
             self.progressbar.setValue(80)
             self.progressbar.setString("Done")
             self.progressbar.setValue(100)
-
-            print(self.services_dict)
-
             self.updateComboboxList(self.services_dict)
 
-            print("/n/n/n/n")
-            print(self.services_dict)
 
                 
             # Update the comboboxes list with the discovered UPnPs
