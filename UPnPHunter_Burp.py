@@ -692,49 +692,58 @@ class BurpExtender(IBurpExtender, ITab, IExtensionStateListener):
         root = tree.documentElement
          # Check if is a Description (with location_url) or SCDP file
         if location_url:
-            # Retrieve the baseURL item
-            base_URL_elem = root.getElementsByTagName('base_URL')
-            if base_URL_elem:
-                base_URL = base_URL_elem[0].rstrip('/')
-            else:
-                url = urlparse(location_url)
-                base_URL = '%s://%s' % (url.scheme, url.netloc)
-            # Retrieve the services list
-            service_list = root.getElementsByTagName('service')
-            for serv in service_list:
-                service = serv.getElementsByTagName('serviceType')[0].firstChild
-                if service is not None:
-                    service_type = serv.getElementsByTagName('serviceType')[0].firstChild.nodeValue
-                ctrl = serv.getElementsByTagName('controlURL')[0].firstChild
-                if ctrl is not None:
-                     ctrl_path = serv.getElementsByTagName('controlURL')[0].firstChild.nodeValue
+            try:
+                # Retrieve the baseURL item
+                base_URL_elem = root.getElementsByTagName('base_URL')
+                if base_URL_elem:
+                    base_URL = base_URL_elem[0].rstrip('/')
+                else:
+                    url = urlparse(location_url)
+                    base_URL = '%s://%s' % (url.scheme, url.netloc)
+                # Retrieve the services list
+                service_list = root.getElementsByTagName('service')
+                for serv in service_list:
+                    service = serv.getElementsByTagName('serviceType')[0].firstChild
+                    if service is not None:
+                        service_type = serv.getElementsByTagName('serviceType')[0].firstChild.nodeValue
+                    ctrl = serv.getElementsByTagName('controlURL')[0].firstChild
+                    if ctrl is not None:
+                         ctrl_path = serv.getElementsByTagName('controlURL')[0].firstChild.nodeValue
 
-                if ctrl_path and not ctrl_path.startswith("/"):
-                    ctrl_path = "/" + ctrl_path
+                    if ctrl_path and not ctrl_path.startswith("/"):
+                        ctrl_path = "/" + ctrl_path
 
-                scpd = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
-                if scpd is not None:
-                    scpd_path = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
+                    scpd = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
+                    if scpd is not None:
+                        scpd_path = serv.getElementsByTagName('SCPDURL')[0].firstChild.nodeValue
 
-                if scpd_path and not scpd_path.startswith("/"):
-                    scpd_path = "/" + scpd_path
+                    if scpd_path and not scpd_path.startswith("/"):
+                        scpd_path = "/" + scpd_path
 
-                ctrl_URL = base_URL + ctrl_path
-                scpd_URL = base_URL + scpd_path
-                # Aggregate the extracted info 
-                output_dict[service_type] = [ctrl_URL, scpd_URL]
+                    ctrl_URL = base_URL + ctrl_path
+                    scpd_URL = base_URL + scpd_path
+                    # Aggregate the extracted info 
+                    output_dict[service_type] = [ctrl_URL, scpd_URL]
+            except BaseException as e:
+                print("[!] Exception parsing device description: " + e.message)
         else:
-            # Parse the SCDP xml file to extract the info about Actions
+            # Parse the SCDP xml file to extract the info about Action          
             action_list = root.getElementsByTagName('action')
             for act in action_list:
-                act_name = act.getElementsByTagName('name')[0].firstChild.nodeValue
-                arg_list = act.getElementsByTagName('argument')
-                arg_name = []
-                for arg in arg_list:
-                    direction = arg.getElementsByTagName('direction')[0].firstChild.nodeValue
-                    if not direction or direction == "in":
-                        arg_name.append(arg.getElementsByTagName('name')[0].firstChild.nodeValue)
-                output_dict[act_name] = arg_name
+                try:
+                    act_name = act.getElementsByTagName('name')[0].firstChild.nodeValue
+                    arg_list = act.getElementsByTagName('argument')
+                    arg_name = []
+
+                    for arg in arg_list:
+                        if (len(arg.getElementsByTagName('direction')) > 0):
+                            direction = arg.getElementsByTagName('direction')[0].firstChild.nodeValue
+                        if not direction or direction == "in":
+                            if (len(arg.getElementsByTagName('name')) > 0):
+                                arg_name.append(arg.getElementsByTagName('name')[0].firstChild.nodeValue)
+                    output_dict[act_name] = arg_name
+                except BaseException as e:
+                    print("[!] Exception parsing scdp: " + e.message)
 
         return output_dict
 
